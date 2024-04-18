@@ -13,14 +13,18 @@ PASSWORD = os.getenv("PASSWORD")
 
 class Database:
     def __init__(self):
-        self.conn = psycopg2.connect(
-            host=HOST,
-            database=DATABASE,
-            user=USER,
-            password=PASSWORD,
-            port=PORT
-        )
-        self.cur = self.conn.cursor()
+        try:
+            self.conn = psycopg2.connect(
+                host=HOST,
+                database=DATABASE,
+                user=USER,
+                password=PASSWORD,
+                port=PORT
+            )
+            self.cur = self.conn.cursor()
+            print("Успешное подключение к базе данных PostgreSQL.")
+        except psycopg2.Error as e:
+            print(f"Ошибка при подключении к базе данных: {e}")
 
     async def create_tables(self):
         self.cur = self.conn.cursor()
@@ -41,7 +45,8 @@ class Database:
             "CREATE TABLE IF NOT EXISTS users("
             "id SERIAL PRIMARY KEY,"
             "chat_id INTEGER UNIQUE,"
-            "username VARCHAR)")
+            "username VARCHAR,"
+            "chosen_language VARCHAR)")
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS authors("
             "id SERIAL PRIMARY KEY,"
@@ -84,6 +89,11 @@ class Database:
             "fanfic_id INT REFERENCES fanfiction(id),"
             "fandom_id INT REFERENCES fandoms(id),"
             "PRIMARY KEY(fanfic_id, fandom_id))")
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_language("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "language_code VARCHAR,"
+            "PRIMARY KEY(chat_id, language_code))")
         self.conn.commit()
         self.cur.close()
 
@@ -110,7 +120,7 @@ class Tags:
         self.cur.execute("SELECT id FROM tags WHERE tag = %s", (tag_name,))
         tag_id = self.cur.fetchone()
         self.cur.close()
-        return tag_id[0]
+        return tag_id[0][0]
 
     async def get_all_tags(self):
         self.cur = self.conn.cursor()
@@ -142,7 +152,7 @@ class Fandoms:
         self.cur.execute("SELECT id FROM fandoms WHERE fandom = %s", (fandom_name,))
         fandom_id = self.cur.fetchone()
         self.cur.close()
-        return fandom_id[0]
+        return fandom_id[0][0]
 
     # async
     async def get_all_fandoms(self):
@@ -180,13 +190,6 @@ class Users:
 
         self.cur.close()
 
-    async def get_all_users_tags(self, chat_id):
-        self.cur = self.conn.cursor()
-        self.cur.execute(f"SELECT tag_id FROM users_tags WHERE chat_id = %s", (chat_id,))
-        result = self.cur.fetchall()
-        self.cur.close()
-        return result
-
     async def add_users_tags(self, chat_id, tag_id):
         self.cur = self.conn.cursor()
         self.cur.execute(
@@ -195,13 +198,6 @@ class Users:
         self.conn.commit()
         self.cur.close()
 
-    async def get_all_users_fandoms(self, chat_id):
-        self.cur = self.conn.cursor()
-        self.cur.execute(f"SELECT fandom_id FROM users_fandoms WHERE chat_id = %s", (chat_id,))
-        result = self.cur.fetchall()
-        self.cur.close()
-        return result
-
     async def add_users_fandoms(self, chat_id, fandom_id):
         self.cur = self.conn.cursor()
         self.cur.execute(
@@ -209,3 +205,43 @@ class Users:
             (chat_id, fandom_id))
         self.conn.commit()
         self.cur.close()
+
+    async def add_users_language(self, chat_id, language_code):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "SELECT COUNT(*) FROM users_language WHERE chat_id = %s",
+            (chat_id,))
+        user_count = self.cur.fetchone()[0]
+        if user_count == 0:
+            self.cur.execute(
+                "INSERT INTO users_language (chat_id, language_code) VALUES (%s, %s)",
+                (chat_id, language_code))
+        else:
+            self.cur.execute(
+                "UPDATE users_language SET language_code = %s WHERE chat_id = %s",
+                (language_code, chat_id))
+        self.conn.commit()
+        self.cur.close()
+
+    async def get_all_users_fandoms(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT fandom_id FROM users_fandoms WHERE chat_id = %s", (chat_id,))
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result[0][0]
+
+    async def get_all_users_tags(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT tag_id FROM users_tags WHERE chat_id = %s", (chat_id,))
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result[0][0]
+
+    async def get_users_language(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT language_code FROM users_language WHERE chat_id = %s", (chat_id,))
+        result = self.cur.fetchall()
+        if not result:
+            return 'ru'
+        self.cur.close()
+        return result[0][0]

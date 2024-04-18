@@ -1,10 +1,8 @@
 from telebot import types, async_telebot
 from bot_utils import lang_dict
 from database_all_tables import Database, Tags, Fandoms, Users
-import os
 from dotenv import load_dotenv
-
-language_mode = 'ru'
+import os
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -20,14 +18,19 @@ fd = Fandoms()
 async def send_start_message(message):
     chat_id = message.chat.id
     keyboard = types.InlineKeyboardMarkup()
+    keyboard_admin = types.ReplyKeyboardMarkup()  #test
     first_name = message.from_user.first_name
 
     await us.add_users(chat_id, first_name)
 
     russian_button = types.InlineKeyboardButton(text="Русский 🇷🇺 ", callback_data=f"russian_{chat_id}")
     english_button = types.InlineKeyboardButton(text="English 🇬🇧 ", callback_data=f"english_{chat_id}")
+    add_tag_button = types.KeyboardButton(text='ДОБАВИТЬ ТЕГ')
+    add_fandom_button = types.KeyboardButton(text='ДОБАВИТЬ ФД')
+    add_pairing_button = types.KeyboardButton(text='ДОБАВИТЬ ПЕЙРИНГ')
 
     keyboard.add(russian_button, english_button)
+    keyboard_admin.add(add_tag_button, add_fandom_button, add_pairing_button)
 
     await bot.send_message(message.chat.id,
                            f"Привет, <b>{first_name}</b>! \n"
@@ -85,13 +88,14 @@ async def choose_tags(call, language, language_dict):
     texts = language_dict.get(language, language_dict['ru'])
     chat_id = call.message.chat.id
     keyboard = types.InlineKeyboardMarkup()
-    tag_buttons = [types.InlineKeyboardButton(text=tag, callback_data=f"choose_tags_{chat_id}")
+    tag_buttons = [types.InlineKeyboardButton(text=tag, callback_data=f"{tag}_{chat_id}")
                    for tag in tags_list]
     back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_tags_{chat_id}")
     clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_tags_{chat_id}")
     keyboard.add(*tag_buttons)
     keyboard.add(back_button)
     keyboard.add(clear_button)
+
     await bot.send_message(chat_id, texts['tags_message'], reply_markup=keyboard)
 
 
@@ -105,9 +109,11 @@ async def choose_fandom(call, language, language_dict):
                       for fandom in fandoms_list]
     back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_tags_{chat_id}")
     clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_fandom_{chat_id}")
+
     keyboard.add(*fandom_buttons)
     keyboard.add(back_button)
     keyboard.add(clear_button)
+
     await bot.send_message(chat_id, texts['fandoms_message'], reply_markup=keyboard)
 
 
@@ -149,44 +155,102 @@ async def add_users_fandoms_handler(call, chat_id):
         await bot.answer_callback_query(call.id, text="Фандом уже выбран (Fandom has been already chosen)")
 
 
-@bot.callback_query_handler(func=lambda call: True)
-async def callback_handler(call):
-    global language_mode
+@bot.callback_query_handler(func=lambda call: call.data.startswith('russian_') or call.data.startswith('english_'))
+async def call_language(call):
     chat_id = call.message.chat.id
+    if call.data.startswith('english_'):
+        await us.add_users_language(chat_id, 'en')
+    else:
+        await us.add_users_language(chat_id, 'ru')
+    language_mode = await us.get_users_language(chat_id)
+    await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['chosen_language'])
+    await start_handler(call, language_mode, lang_dict)
 
-    if call.data.startswith('russian_'):
-        language_mode = 'ru'
-        await start_handler(call, language_mode, lang_dict)
-        await bot.answer_callback_query(call.id, text="Выбран русский язык")
-    elif call.data.startswith('english_'):
-        language_mode = 'en'
-        await start_handler(call, language_mode, lang_dict)
-        await bot.answer_callback_query(call.id, text="The chosen language is English")
-    elif call.data.startswith('form_'):
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('form_'))
+async def call_form(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('form_'):
         await form_handler(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    elif call.data.startswith('tag_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('tag_'))
+async def call_tag(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('tag_'):
         await choose_tags(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    elif call.data.startswith('fandom_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('fandom_'))
+async def call_fandom(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('fandom_'):
         await choose_fandom(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    elif call.data.startswith('back_form_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('back_form_'))
+async def call_back_form(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('back_form_'):
         await start_handler(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    elif call.data.startswith('back_tags_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('back_tags_'))
+async def call_back_tags(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('back_tags_'):
         await form_handler(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    # elif call.data.startswith('clear_tags_'):
-    #     # user_tags['selected_tags'] = []
-    #     bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared_tags'])
-    # elif call.data.startswith('clear_fandom_'):
-    #     # user_tags['selected_fandoms'] = []
-    #     bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared_tags'])
-    elif call.data.startswith('finder_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('clear_tags_'))
+async def call_clear_tags(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('clear_tags_'):
+        await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared'])
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('clear_fandoms_'))
+async def call_clear_fandoms(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('clear_fandoms_'):
+        await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared'])
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('finder_'))
+async def call_finder(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('finder_'):
         await finder_handler(call, language_mode, lang_dict)
         await bot.answer_callback_query(call.id)
-    elif call.data.startswith('choose_tags_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_tags_'))
+async def call_choose_tags(call):
+    chat_id = call.message.chat.id
+    if call.data.startswith('choose_tags_'):
         await add_users_tags_handler(call, chat_id)
-    elif call.data.startswith('choose_fandoms_'):
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_fandoms_'))
+async def call_choose_fandoms(call):
+    chat_id = call.message.chat.id
+    if call.data.startswith('choose_fandoms_'):
         await add_users_fandoms_handler(call, chat_id)
+
+@bot.message_handler(func=lambda message: message.text=='ДОБАВИТЬ ТЕГ' or message.text=='ДОБАВИТЬ ФД' or message.text=='ДОБАВИТЬ ПЕЙРИНГ')
+def save_text(message):
+        bot.send_message(message.chat.id, "Теперь введи текст для сохранения:")
+        bot.register_next_step_handler(message, save_text_handler)

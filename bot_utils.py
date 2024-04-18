@@ -1,14 +1,10 @@
 lang_dict = {
-    'fandoms': {'Stray Kids🐺': "Хёнджин/Чанбин",
-                'BTS 💜': "Ким Намджун/Пак Чимин",
-                'Harry Potter🧙‍♂️': "Драко Малфой/Гермиона Грейнджер",
-                'Good Omens (Благие знамения)😇': "Кроули/Азирафель"},
-    'tags': ["Romance💋", "Comedy😂", "Getting together👩‍❤️‍👨"],
     'ru': {
+        'chosen_language': "Выбран русский язык",
         'like': "Нравится 🟢",
         'dislike': "🔴 Не нравится",
         'fandoms_message': "Выберите один или несколько фандомов:",
-        'cleared_tags': "Список очищен",
+        'cleared': "Список очищен",
         'clear': "Очистить мой список",
         'tags_message': "Выберите один или несколько тегов: \n"
                         "Их описание можно посмотреть с помощью команды /help",
@@ -23,10 +19,11 @@ lang_dict = {
         'choose_pairings': "Выбрать пейринги 💑👩‍❤️‍💋‍👩👨‍❤️‍👨"
     },
     'en': {
+        'chosen_language': "The chosen language is English",
         'like': "Like 🟢",
         'dislike': "🔴 Don't like",
         'fandoms_message': "Select one or more fandoms:",
-        'cleared_tags': "The list has been cleared",
+        'cleared': "The list has been cleared",
         'clear': "Clear my list",
         'tags_message': "Select one or more tags: \n"
                         "Their description can be viewed using the /help command",
