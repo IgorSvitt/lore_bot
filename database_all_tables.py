@@ -245,3 +245,35 @@ class Users:
             return 'ru'
         self.cur.close()
         return result[0][0]
+
+
+class Pairings:
+    def __init__(self):
+        self.conn = psycopg2.connect(
+            host=HOST,
+            database=DATABASE,
+            user=USER,
+            password=PASSWORD,
+            port=PORT
+        )
+        self.cur = self.conn.cursor()
+
+    async def add_pairing(self, pairing_name: str, fandom_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO pairings(pairing, fandom_id) VALUES ('{pairing_name}', {fandom_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def get_pairing_id(self, pairing_name: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT id FROM pairings WHERE pairing = %s", (pairing_name,))
+        fandom_id = self.cur.fetchone()
+        self.cur.close()
+        return fandom_id[0][0]
+
+    async def get_all_pairings(self):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT pairing FROM pairings")
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result

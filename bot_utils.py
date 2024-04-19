@@ -39,7 +39,6 @@ lang_dict = {
     }
 }
 
-
 def recommend(preferences):
     cover = 0
     return cover

@@ -1,6 +1,6 @@
 from telebot import types, async_telebot
 from bot_utils import lang_dict
-from database_all_tables import Database, Tags, Fandoms, Users
+from database_all_tables import Database, Tags, Fandoms, Users, Pairings
 from dotenv import load_dotenv
 import os
 
@@ -12,25 +12,21 @@ db = Database()
 us = Users()
 tg = Tags()
 fd = Fandoms()
+pr = Pairings()
 
 
 @bot.message_handler(commands=['start'])
 async def send_start_message(message):
     chat_id = message.chat.id
     keyboard = types.InlineKeyboardMarkup()
-    keyboard_admin = types.ReplyKeyboardMarkup()  #test
     first_name = message.from_user.first_name
 
     await us.add_users(chat_id, first_name)
 
     russian_button = types.InlineKeyboardButton(text="Русский 🇷🇺 ", callback_data=f"russian_{chat_id}")
     english_button = types.InlineKeyboardButton(text="English 🇬🇧 ", callback_data=f"english_{chat_id}")
-    add_tag_button = types.KeyboardButton(text='ДОБАВИТЬ ТЕГ')
-    add_fandom_button = types.KeyboardButton(text='ДОБАВИТЬ ФД')
-    add_pairing_button = types.KeyboardButton(text='ДОБАВИТЬ ПЕЙРИНГ')
 
     keyboard.add(russian_button, english_button)
-    keyboard_admin.add(add_tag_button, add_fandom_button, add_pairing_button)
 
     await bot.send_message(message.chat.id,
                            f"Привет, <b>{first_name}</b>! \n"
@@ -105,7 +101,7 @@ async def choose_fandom(call, language, language_dict):
     texts = language_dict.get(language, language_dict['ru'])
     chat_id = call.message.chat.id
     keyboard = types.InlineKeyboardMarkup()
-    fandom_buttons = [types.InlineKeyboardButton(text=fandom, callback_data=f"choose_fandoms_{chat_id}")
+    fandom_buttons = [types.InlineKeyboardButton(text=fandom, callback_data=f"{fandom}_{chat_id}")
                       for fandom in fandoms_list]
     back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_tags_{chat_id}")
     clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_fandom_{chat_id}")
@@ -153,6 +149,21 @@ async def add_users_fandoms_handler(call, chat_id):
         await bot.answer_callback_query(call.id, text="Фандом выбран (Fandom is chosen)")
     else:
         await bot.answer_callback_query(call.id, text="Фандом уже выбран (Fandom has been already chosen)")
+
+
+async def is_call_startswith_tag():
+    tags_list = await tg.get_all_tags()
+    return lambda call: any(call.data.startswith(f"{tag}") for tag in tags_list)
+
+
+async def is_call_startswith_fandom():
+    fandoms_list = await fd.get_all_fandoms()
+    return lambda call: any(call.data.startswith(f"{fandom}") for fandom in fandoms_list)
+
+
+async def is_call_startswith_pairing():
+    pairings_list = await pr.get_all_pairings()
+    return lambda call: any(call.data.startswith(f"{pairing}") for pairing in pairings_list)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('russian_') or call.data.startswith('english_'))
@@ -237,20 +248,41 @@ async def call_finder(call):
         await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_tags_'))
+@bot.callback_query_handler(func=is_call_startswith_tag())
 async def call_choose_tags(call):
     chat_id = call.message.chat.id
     if call.data.startswith('choose_tags_'):
         await add_users_tags_handler(call, chat_id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_fandoms_'))
+@bot.callback_query_handler(func=is_call_startswith_fandom())
 async def call_choose_fandoms(call):
     chat_id = call.message.chat.id
     if call.data.startswith('choose_fandoms_'):
         await add_users_fandoms_handler(call, chat_id)
 
-@bot.message_handler(func=lambda message: message.text=='ДОБАВИТЬ ТЕГ' or message.text=='ДОБАВИТЬ ФД' or message.text=='ДОБАВИТЬ ПЕЙРИНГ')
-def save_text(message):
-        bot.send_message(message.chat.id, "Теперь введи текст для сохранения:")
-        bot.register_next_step_handler(message, save_text_handler)
+
+# admin штука, потом уберу
+@bot.message_handler(func=lambda message: message.text.startswith('ТЕГИ'))
+async def add_tag_admin(message):
+    text = message.text
+    tag_text = text.split('ТЕГИ', 1)[1].strip()
+    for tag in tag_text.split():
+        await tg.add_tag(tag)
+
+
+@bot.message_handler(func=lambda message: message.text.startswith('ФАНДОМЫ'))
+async def add_fd_admin(message):
+    text = message.text
+    fandom_text = text.split('ФАНДОМЫ', 1)[1].strip()
+    for fandom in fandom_text.split():
+        await fd.add_fandom(fandom)
+
+
+@bot.message_handler(func=lambda message: message.text.startswith('ПЕЙРИНГИ'))
+async def add_fd_admin(message):
+    text = message.text
+    pairing_text = text.split('ПЕЙРИНГИ', 1)[1].strip()
+    pairing = pairing_text.split()
+    for i in range(len(pairing) - 1):
+        await pr.add_pairing(pairing[i], pairing_text[i + 1])
