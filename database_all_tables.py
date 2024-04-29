@@ -37,6 +37,10 @@ class Database:
             "id SERIAL PRIMARY KEY,"
             "fandom VARCHAR UNIQUE)")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS relationships("
+            "id SERIAL PRIMARY KEY,"
+            "relationship VARCHAR UNIQUE)")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS pairings("
             "id SERIAL PRIMARY KEY,"
             "pairing VARCHAR,"
@@ -68,11 +72,17 @@ class Database:
             "pairing_id INTEGER REFERENCES pairings(id),"
             "PRIMARY KEY(chat_id, pairing_id))")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_relationships("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "relationship_id INTEGER REFERENCES relationships(id),"
+            "PRIMARY KEY(chat_id, relationship_id))")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction("
             "id SERIAL PRIMARY KEY,"
             "title VARCHAR,"
             "rating VARCHAR,"
             "status VARCHAR,"
+            "link VARCHAR,"
             "author_id INT REFERENCES authors(id))")
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction_tags("
@@ -120,7 +130,7 @@ class Tags:
         self.cur.execute("SELECT id FROM tags WHERE tag = %s", (tag_name,))
         tag_id = self.cur.fetchone()
         self.cur.close()
-        return tag_id[0][0]
+        return tag_id[0]
 
     async def get_all_tags(self):
         self.cur = self.conn.cursor()
@@ -152,7 +162,14 @@ class Fandoms:
         self.cur.execute("SELECT id FROM fandoms WHERE fandom = %s", (fandom_name,))
         fandom_id = self.cur.fetchone()
         self.cur.close()
-        return fandom_id[0][0]
+        return fandom_id
+
+    async def get_fandom_by_id(self, fandom_id: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT fandom FROM fandoms WHERE id = %s", (fandom_id,))
+        fandom_name = self.cur.fetchone()
+        self.cur.close()
+        return fandom_name[0]
 
     # async
     async def get_all_fandoms(self):
@@ -206,6 +223,22 @@ class Users:
         self.conn.commit()
         self.cur.close()
 
+    async def add_users_pairings(self, chat_id, pairing_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "INSERT INTO users_pairings (chat_id, pairing_id) VALUES (%s, %s)",
+            (chat_id, pairing_id))
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_users_relationships(self, chat_id, relationship_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "INSERT INTO users_relationships (chat_id, relationship_id) VALUES (%s, %s)",
+            (chat_id, relationship_id))
+        self.conn.commit()
+        self.cur.close()
+
     async def add_users_language(self, chat_id, language_code):
         self.cur = self.conn.cursor()
         self.cur.execute(
@@ -223,19 +256,67 @@ class Users:
         self.conn.commit()
         self.cur.close()
 
+    async def delete_users_tags_by_chat_id(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"DELETE FROM users_tags WHERE chat_id = %s", (chat_id,))
+        self.conn.commit()
+        self.cur.close()
+
+    async def delete_users_pairings_by_chat_id(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"DELETE FROM users_pairings WHERE chat_id = %s", (chat_id,))
+        self.conn.commit()
+        self.cur.close()
+
+    async def delete_users_pairings_by_chat_id_fandom(self, fandom_id, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "DELETE FROM users_pairings "
+            "WHERE pairing_id IN (SELECT id FROM pairings WHERE fandom_id = %s) "
+            "AND chat_id = %s", (fandom_id, chat_id)
+        )
+        self.conn.commit()
+        self.cur.close()
+
+    async def delete_users_fandoms_by_chat_id(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"DELETE FROM users_fandoms WHERE chat_id = %s", (chat_id,))
+        self.conn.commit()
+        self.cur.close()
+
+    async def delete_users_relationships_by_chat_id(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"DELETE FROM users_relationships WHERE chat_id = %s", (chat_id,))
+        self.conn.commit()
+        self.cur.close()
+
     async def get_all_users_fandoms(self, chat_id):
         self.cur = self.conn.cursor()
         self.cur.execute(f"SELECT fandom_id FROM users_fandoms WHERE chat_id = %s", (chat_id,))
         result = self.cur.fetchall()
         self.cur.close()
-        return result[0][0]
+        return result
 
     async def get_all_users_tags(self, chat_id):
         self.cur = self.conn.cursor()
         self.cur.execute(f"SELECT tag_id FROM users_tags WHERE chat_id = %s", (chat_id,))
         result = self.cur.fetchall()
         self.cur.close()
-        return result[0][0]
+        return result
+
+    async def get_all_users_pairings(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT pairing_id FROM users_pairings WHERE chat_id = %s", (chat_id,))
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result
+
+    async def get_all_users_relationships(self, chat_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT relationship_id FROM users_relationships WHERE chat_id = %s", (chat_id,))
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result
 
     async def get_users_language(self, chat_id):
         self.cur = self.conn.cursor()
@@ -267,9 +348,9 @@ class Pairings:
     async def get_pairing_id(self, pairing_name: str):
         self.cur = self.conn.cursor()
         self.cur.execute("SELECT id FROM pairings WHERE pairing = %s", (pairing_name,))
-        fandom_id = self.cur.fetchone()
+        pairing_id = self.cur.fetchone()
         self.cur.close()
-        return fandom_id[0][0]
+        return pairing_id
 
     async def get_all_pairings(self):
         self.cur = self.conn.cursor()
@@ -277,3 +358,50 @@ class Pairings:
         result = self.cur.fetchall()
         self.cur.close()
         return result
+
+    async def get_pairings_by_fandom(self, fandom_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT pairing FROM pairings WHERE fandom_id = %s", (fandom_id,))
+        pairings = self.cur.fetchall()
+        self.cur.close()
+        return pairings
+
+
+class Relationships:
+    def __init__(self):
+        self.conn = psycopg2.connect(
+            host=HOST,
+            database=DATABASE,
+            user=USER,
+            password=PASSWORD,
+            port=PORT
+        )
+        self.cur = self.conn.cursor()
+
+    async def get_all_relationships(self):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"SELECT relationship FROM relationships")
+        result = self.cur.fetchall()
+        self.cur.close()
+        return result
+
+    async def get_relationship_id(self, relationship_name: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT id FROM relationships WHERE relationship = %s", (relationship_name,))
+        relationship_id = self.cur.fetchone()
+        self.cur.close()
+        return relationship_id
+
+class Fanfiction:
+    def __init__(self):
+        self.conn = psycopg2.connect(
+            host=HOST,
+            database=DATABASE,
+            user=USER,
+            password=PASSWORD,
+            port=PORT
+        )
+        self.cur = self.conn.cursor()
+
+    def add_fanfiction(self):
+        pass

@@ -1,6 +1,6 @@
 from telebot import types, async_telebot
 from bot_utils import lang_dict
-from database_all_tables import Database, Tags, Fandoms, Users, Pairings
+from database_all_tables import Database, Tags, Fandoms, Users, Pairings, Relationships, Fanfiction
 from dotenv import load_dotenv
 import os
 
@@ -13,7 +13,8 @@ us = Users()
 tg = Tags()
 fd = Fandoms()
 pr = Pairings()
-
+rl = Relationships()
+ff = Fanfiction()
 
 @bot.message_handler(commands=['start'])
 async def send_start_message(message):
@@ -44,15 +45,22 @@ async def send_start_message(message):
                            reply_markup=keyboard)
 
 
-async def start_handler(call, language, language_dict):
+@bot.message_handler(commands=['help'])
+async def send_start_message(message):
+    await bot.send_message(message.chat.id,
+                           "Some info about LORE\n",
+                           parse_mode='html')
+
+
+async def start_handler(call, language):
     chat_id = call.message.chat.id
-    texts = language_dict.get(language, language_dict['ru'])
+    texts = lang_dict.get(language, lang_dict['ru'])
     keyboard = types.InlineKeyboardMarkup()
 
     form_button = types.InlineKeyboardButton(text=texts['form'], callback_data=f"form_{chat_id}")
     finder_button = types.InlineKeyboardButton(text=texts['finder'], callback_data=f"finder_{chat_id}")
     favorites_button = types.InlineKeyboardButton(text=texts['favorites'], callback_data=f"favorites_{chat_id}")
-    lore_button = types.InlineKeyboardButton(text=texts['favorites'], callback_data=f"lore_info_{chat_id}")
+    lore_button = types.InlineKeyboardButton(text='❓', callback_data=f"lore_info_{chat_id}")
 
     keyboard.row(form_button)
     keyboard.row(finder_button)
@@ -61,16 +69,16 @@ async def start_handler(call, language, language_dict):
     await bot.send_message(chat_id, texts['activity'], reply_markup=keyboard)
 
 
-async def form_handler(call, language, language_dict):
+async def form_handler(call, language):
     chat_id = call.message.chat.id
-    texts = language_dict.get(language, language_dict['ru'])
+    texts = lang_dict.get(language, lang_dict['ru'])
 
     keyboard = types.InlineKeyboardMarkup()
     choose_tag_button = types.InlineKeyboardButton(text=texts['choose_tag'], callback_data=f"tag_{chat_id}")
     choose_fandom_button = types.InlineKeyboardButton(text=texts['choose_fandom'], callback_data=f"fandom_{chat_id}")
     pairing_button = types.InlineKeyboardButton(text=texts['choose_pairings'],
-                                                callback_data=f"choose_pairings_{chat_id}")
-    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_form_{chat_id}")
+                                                callback_data=f"pairing_{chat_id}")
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_start_{chat_id}")
     keyboard.row(choose_tag_button)
     keyboard.row(choose_fandom_button)
     keyboard.row(back_button)
@@ -78,15 +86,15 @@ async def form_handler(call, language, language_dict):
     await bot.send_message(chat_id, texts['activity'], reply_markup=keyboard)
 
 
-async def choose_tags(call, language, language_dict):
+async def choose_tags(call, language):
     tags = await tg.get_all_tags()
     tags_list = [item[0] for item in tags]
-    texts = language_dict.get(language, language_dict['ru'])
+    texts = lang_dict.get(language, lang_dict['ru'])
     chat_id = call.message.chat.id
     keyboard = types.InlineKeyboardMarkup()
-    tag_buttons = [types.InlineKeyboardButton(text=tag, callback_data=f"{tag}_{chat_id}")
+    tag_buttons = [types.InlineKeyboardButton(text=tag, callback_data=f"choose_tags_{tag}_{chat_id}")
                    for tag in tags_list]
-    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_tags_{chat_id}")
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_form_{chat_id}")
     clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_tags_{chat_id}")
     keyboard.add(*tag_buttons)
     keyboard.add(back_button)
@@ -95,16 +103,16 @@ async def choose_tags(call, language, language_dict):
     await bot.send_message(chat_id, texts['tags_message'], reply_markup=keyboard)
 
 
-async def choose_fandom(call, language, language_dict):
+async def choose_fandom(call, language):
     fandoms = await fd.get_all_fandoms()
     fandoms_list = [item[0] for item in fandoms]
-    texts = language_dict.get(language, language_dict['ru'])
+    texts = lang_dict.get(language, lang_dict['ru'])
     chat_id = call.message.chat.id
     keyboard = types.InlineKeyboardMarkup()
-    fandom_buttons = [types.InlineKeyboardButton(text=fandom, callback_data=f"{fandom}_{chat_id}")
+    fandom_buttons = [types.InlineKeyboardButton(text=fandom, callback_data=f"choose_fandoms_{fandom}_{chat_id}")
                       for fandom in fandoms_list]
-    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_tags_{chat_id}")
-    clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_fandom_{chat_id}")
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_form_{chat_id}")
+    clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_fandoms_{chat_id}")
 
     keyboard.add(*fandom_buttons)
     keyboard.add(back_button)
@@ -113,12 +121,60 @@ async def choose_fandom(call, language, language_dict):
     await bot.send_message(chat_id, texts['fandoms_message'], reply_markup=keyboard)
 
 
-async def choose_pairings(call, language, language_dict):
-    pass
+async def choose_pairing(call, language):
+    chat_id = call.message.chat.id
+    texts = lang_dict.get(language, lang_dict['ru'])
+
+    keyboard = types.InlineKeyboardMarkup()
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_form_{chat_id}")
+    clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_common_pairings_{chat_id}")
+    keyboard.row(back_button)
+    chosen_fandoms_id = await us.get_all_users_fandoms(chat_id)
+    if chosen_fandoms_id:
+        chosen_fandoms_id_list = [item[0] for item in chosen_fandoms_id]
+        chosen_fandoms_list = [await fd.get_fandom_by_id(fd_id) for fd_id in chosen_fandoms_id_list]
+        chosen_fandoms_buttons = [
+            types.InlineKeyboardButton(text=chosen_fandom,
+                                       callback_data=f"choose_pairings_fandoms_{chosen_fandom}_{chat_id}")
+            for chosen_fandom in chosen_fandoms_list]
+        keyboard.add(*chosen_fandoms_buttons)
+        await bot.send_message(chat_id, texts['pairings_fandoms_message'], reply_markup=keyboard)
+    else:
+        common_pairings = await rl.get_all_relationships()
+        common_pairings_buttons = [types.InlineKeyboardButton
+                                   (text=relationship[0],
+                                    callback_data=f"choose_pairings_common_{relationship[0]}_{chat_id}")
+                                   for relationship in common_pairings]
+        print([relationship[0] for relationship in common_pairings])
+        for button in common_pairings_buttons:
+            keyboard.row(button)
+        keyboard.row(clear_button)
+        await bot.send_message(chat_id, texts['pairings_common_message'], reply_markup=keyboard)
 
 
-async def finder_handler(call, language, language_dict):
-    texts = language_dict.get(language, language_dict['ru'])
+async def users_pairings_handler(call, language, chat_id):
+    keyboard = types.InlineKeyboardMarkup()
+    texts = lang_dict.get(language, lang_dict['ru'])
+    chosen_fandom = call.data.split('_')[3]
+    print("я тут с фд")
+    chosen_fandom_id = await fd.get_fandom_id(chosen_fandom)
+    print("Кнопки сфд", chosen_fandom, chosen_fandom_id)
+    pairings_in_fandom = await pr.get_pairings_by_fandom(chosen_fandom_id[0])
+    print("Кнопки сфд", [p[0] for p in pairings_in_fandom])
+    available_pairings_buttons = [types.InlineKeyboardButton
+                                  (text=available_pairing[0],
+                                   callback_data=f"choose_pairings_user_{available_pairing[0]}_{chat_id}")
+                                  for available_pairing in pairings_in_fandom]
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_pairings_{chat_id}")
+    clear_button = types.InlineKeyboardButton(text=texts['clear'], callback_data=f"clear_pairings_{chat_id}")
+    keyboard.add(*available_pairings_buttons)
+    keyboard.add(back_button)
+    keyboard.add(clear_button)
+    await bot.send_message(chat_id, texts['pairings_message'], reply_markup=keyboard)
+
+
+async def finder_handler(call, language):
+    texts = lang_dict.get(language, lang_dict['ru'])
     keyboard = types.InlineKeyboardMarkup()
     chat_id = call.chat.id
     like_button = types.InlineKeyboardButton(text=texts['like'], callback_data=f"like_{chat_id}")
@@ -130,10 +186,11 @@ async def finder_handler(call, language, language_dict):
 
 
 async def add_users_tags_handler(call, chat_id):
-    chosen_tag = call.data.split('_')[0]
+    chosen_tag = call.data.split('_')[2]
     chosen_tag_id = await tg.get_tag_id(chosen_tag)
     user_tags = await us.get_all_users_tags(chat_id)
-    if chosen_tag_id not in user_tags:
+    if not any(chosen_tag_id in t for t in user_tags):
+        print("я тут")
         await us.add_users_tags(chat_id, chosen_tag_id)
         await bot.answer_callback_query(call.id, text="Тег выбран (Tag is chosen)")
     else:
@@ -141,29 +198,43 @@ async def add_users_tags_handler(call, chat_id):
 
 
 async def add_users_fandoms_handler(call, chat_id):
-    chosen_fandom = call.data.split('_')[0]
+    chosen_fandom = call.data.split('_')[2]
     chosen_fandom_id = await fd.get_fandom_id(chosen_fandom)
     user_fandoms = await us.get_all_users_fandoms(chat_id)
-    if chosen_fandom_id not in user_fandoms:
+    if chosen_fandom_id not in [t for t in user_fandoms]:
         await us.add_users_fandoms(chat_id, chosen_fandom_id)
         await bot.answer_callback_query(call.id, text="Фандом выбран (Fandom is chosen)")
     else:
         await bot.answer_callback_query(call.id, text="Фандом уже выбран (Fandom has been already chosen)")
 
 
-async def is_call_startswith_tag():
-    tags_list = await tg.get_all_tags()
-    return lambda call: any(call.data.startswith(f"{tag}") for tag in tags_list)
+async def add_users_pairings(call, chat_id):
+    chosen_pairing = call.data.split('_')[3]
+    print(chosen_pairing)
+    chosen_pairing_id = await pr.get_pairing_id(chosen_pairing)
+    print("Кнопки с пейр", chosen_pairing_id)
+    user_pairings = await us.get_all_users_pairings(chat_id)
+    print("Кнопки с пейр", user_pairings)
+    if chosen_pairing_id not in user_pairings:
+        await us.add_users_pairings(chat_id, chosen_pairing_id)
+        await bot.answer_callback_query(call.id, text="Пейринг выбран (Pairing is chosen)")
+    else:
+        await bot.answer_callback_query(call.id, text="Пейринг уже выбран (Pairing has been already chosen)")
 
 
-async def is_call_startswith_fandom():
-    fandoms_list = await fd.get_all_fandoms()
-    return lambda call: any(call.data.startswith(f"{fandom}") for fandom in fandoms_list)
-
-
-async def is_call_startswith_pairing():
-    pairings_list = await pr.get_all_pairings()
-    return lambda call: any(call.data.startswith(f"{pairing}") for pairing in pairings_list)
+async def add_users_relationships(call, chat_id):
+    chosen_relationship = call.data.split('_')[3]
+    print(chosen_relationship)
+    chosen_relationship_id = await rl.get_relationship_id(chosen_relationship)
+    print("id", chosen_relationship_id)
+    user_relationships = await us.get_all_users_relationships(chat_id)
+    print("all", user_relationships)
+    if chosen_relationship_id not in user_relationships:
+        await us.add_users_relationships(chat_id, chosen_relationship_id)
+        await bot.answer_callback_query(call.id, text="Тип отношений выбран (Relationship type is chosen)")
+    else:
+        await bot.answer_callback_query(call.id, text="Тип отношений уже выбран (Relationship type has been already "
+                                                      "chosen)")
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('russian_') or call.data.startswith('english_'))
@@ -175,7 +246,7 @@ async def call_language(call):
         await us.add_users_language(chat_id, 'ru')
     language_mode = await us.get_users_language(chat_id)
     await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['chosen_language'])
-    await start_handler(call, language_mode, lang_dict)
+    await start_handler(call, language_mode)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('form_'))
@@ -183,7 +254,7 @@ async def call_form(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('form_'):
-        await form_handler(call, language_mode, lang_dict)
+        await form_handler(call, language_mode)
         await bot.answer_callback_query(call.id)
 
 
@@ -192,7 +263,7 @@ async def call_tag(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('tag_'):
-        await choose_tags(call, language_mode, lang_dict)
+        await choose_tags(call, language_mode)
         await bot.answer_callback_query(call.id)
 
 
@@ -201,42 +272,48 @@ async def call_fandom(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('fandom_'):
-        await choose_fandom(call, language_mode, lang_dict)
+        await choose_fandom(call, language_mode)
         await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('back_form_'))
-async def call_back_form(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('pairing_'))
+async def call_pairing(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
-    if call.data.startswith('back_form_'):
-        await start_handler(call, language_mode, lang_dict)
+    if call.data.startswith('pairing_'):
+        await choose_pairing(call, language_mode)
         await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('back_tags_'))
-async def call_back_tags(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('back_'))
+async def call_back_start(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
-    if call.data.startswith('back_tags_'):
-        await form_handler(call, language_mode, lang_dict)
-        await bot.answer_callback_query(call.id)
+    if call.data.startswith('back_start_'):
+        await start_handler(call, language_mode)
+    elif call.data.startswith('back_form_'):
+        await form_handler(call, language_mode)
+    elif call.data.startswith('back_pairings'):
+        await choose_pairing(call, language_mode)
+    await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('clear_tags_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('clear_'))
 async def call_clear_tags(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('clear_tags_'):
-        await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared'])
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('clear_fandoms_'))
-async def call_clear_fandoms(call):
-    chat_id = call.message.chat.id
-    language_mode = await us.get_users_language(chat_id)
-    if call.data.startswith('clear_fandoms_'):
-        await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared'])
+        await us.delete_users_tags_by_chat_id(chat_id)
+    elif call.data.startswith('clear_fandoms_'):
+        users_fandoms = await us.get_all_users_fandoms(chat_id)
+        for fandom in users_fandoms:
+            await us.delete_users_pairings_by_chat_id_fandom(fandom, chat_id)
+        await us.delete_users_fandoms_by_chat_id(chat_id)
+    elif call.data.startswith('clear_pairings_'):
+        await us.delete_users_pairings_by_chat_id(chat_id)
+    elif call.data.startswith('clear_common_pairings'):
+        await us.delete_users_relationships_by_chat_id(chat_id)
+    await bot.answer_callback_query(call.id, text=lang_dict.get(language_mode, lang_dict['ru'])['cleared'])
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('finder_'))
@@ -244,22 +321,44 @@ async def call_finder(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('finder_'):
-        await finder_handler(call, language_mode, lang_dict)
+        await finder_handler(call, language_mode)
         await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=is_call_startswith_tag())
+@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_tags_'))
 async def call_choose_tags(call):
     chat_id = call.message.chat.id
     if call.data.startswith('choose_tags_'):
         await add_users_tags_handler(call, chat_id)
+        await bot.answer_callback_query(call.id)
 
 
-@bot.callback_query_handler(func=is_call_startswith_fandom())
+@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_fandoms_'))
 async def call_choose_fandoms(call):
     chat_id = call.message.chat.id
     if call.data.startswith('choose_fandoms_'):
         await add_users_fandoms_handler(call, chat_id)
+        await bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('choose_pairings_'))
+async def call_choose_pairings(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('choose_pairings_fandoms_'):
+        await users_pairings_handler(call, language_mode, chat_id)
+    elif call.data.startswith('choose_pairings_user_'):
+        await add_users_pairings(call, chat_id)
+    elif call.data.startswith('choose_pairings_common_'):
+        await add_users_relationships(call, chat_id)
+    await bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('lore_info_'))
+async def send_help_info(call):
+    await bot.send_message(call.chat.id,
+                           "lore info")
+    await bot.answer_callback_query(call.id)
 
 
 # admin штука, потом уберу
@@ -280,9 +379,15 @@ async def add_fd_admin(message):
 
 
 @bot.message_handler(func=lambda message: message.text.startswith('ПЕЙРИНГИ'))
-async def add_fd_admin(message):
+async def add_pair_admin(message):
     text = message.text
     pairing_text = text.split('ПЕЙРИНГИ', 1)[1].strip()
     pairing = pairing_text.split()
     for i in range(len(pairing) - 1):
         await pr.add_pairing(pairing[i], pairing_text[i + 1])
+
+
+@bot.channel_post_handler(func=lambda message: 'telegra.ph' in message.text.lower())
+def handle_all_messages(message):
+    if 'telegra.ph' in message.text.lower():
+        ff.add_fanfiction()
