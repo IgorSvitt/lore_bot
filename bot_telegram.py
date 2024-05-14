@@ -1,6 +1,7 @@
 from telebot import types, async_telebot
-from bot_utils import lang_dict
-from database_all_tables import Database, Tags, Fandoms, Users, Pairings, Relationships, Fanfiction
+from bot_utils import lang_dict, process_post
+from database_all_tables import Database, Tags, Fandoms, Users, Pairings, Relationships, Fanfiction, Authors
+from RecSys import RecommendationSystem
 from dotenv import load_dotenv
 import os
 
@@ -10,11 +11,14 @@ bot = async_telebot.AsyncTeleBot(TOKEN)
 
 db = Database()
 us = Users()
+au = Authors()
 tg = Tags()
 fd = Fandoms()
 pr = Pairings()
 rl = Relationships()
 ff = Fanfiction()
+rs = RecommendationSystem()
+
 
 @bot.message_handler(commands=['start'])
 async def send_start_message(message):
@@ -145,7 +149,6 @@ async def choose_pairing(call, language):
                                    (text=relationship[0],
                                     callback_data=f"choose_pairings_common_{relationship[0]}_{chat_id}")
                                    for relationship in common_pairings]
-        print([relationship[0] for relationship in common_pairings])
         for button in common_pairings_buttons:
             keyboard.row(button)
         keyboard.row(clear_button)
@@ -156,11 +159,8 @@ async def users_pairings_handler(call, language, chat_id):
     keyboard = types.InlineKeyboardMarkup()
     texts = lang_dict.get(language, lang_dict['ru'])
     chosen_fandom = call.data.split('_')[3]
-    print("я тут с фд")
     chosen_fandom_id = await fd.get_fandom_id(chosen_fandom)
-    print("Кнопки сфд", chosen_fandom, chosen_fandom_id)
     pairings_in_fandom = await pr.get_pairings_by_fandom(chosen_fandom_id[0])
-    print("Кнопки сфд", [p[0] for p in pairings_in_fandom])
     available_pairings_buttons = [types.InlineKeyboardButton
                                   (text=available_pairing[0],
                                    callback_data=f"choose_pairings_user_{available_pairing[0]}_{chat_id}")
@@ -173,16 +173,51 @@ async def users_pairings_handler(call, language, chat_id):
     await bot.send_message(chat_id, texts['pairings_message'], reply_markup=keyboard)
 
 
-async def finder_handler(call, language):
+async def finder_handler(language, chat_id):
     texts = lang_dict.get(language, lang_dict['ru'])
     keyboard = types.InlineKeyboardMarkup()
-    chat_id = call.chat.id
-    like_button = types.InlineKeyboardButton(text=texts['like'], callback_data=f"like_{chat_id}")
-    dislike_button = types.InlineKeyboardButton(text=texts['dislike'], callback_data=f"dislike_{chat_id}")
+    find_ff_button = types.InlineKeyboardButton(text=texts['find_ff'], callback_data=f"find_ff_{chat_id}")
+    lore_button = types.InlineKeyboardButton(text='❓', callback_data=f"lore_info_{chat_id}")
+    back_button = types.InlineKeyboardButton(text=texts['back'], callback_data=f"back_start_{chat_id}")
+    keyboard.add(find_ff_button, lore_button)
+    keyboard.row(back_button)
+    await bot.send_message(chat_id, texts['finder_greeting'], reply_markup=keyboard)
+
+
+async def finder_recommend_handler(language, chat_id):
+    texts = lang_dict.get(language, lang_dict['ru'])
+    recommendation = await rs.rec_sys()
+    ffid = recommendation[0]
+    keyboard = types.InlineKeyboardMarkup()
+    like_button = types.InlineKeyboardButton(text=texts['like'], callback_data=f"find_ff_like_{ffid}_{chat_id}")
+    dislike_button = types.InlineKeyboardButton(text=texts['dislike'],
+                                                callback_data=f"find_ff_dislike_{ffid}_{chat_id}")
     keyboard.add(like_button, dislike_button)
-    await bot.send_message(chat_id,
-                           "Fanfinder это как Тиндер только для фанфиков. Выбери себе чтиво по душе!:\n",
-                           reply_markup=keyboard)
+    await bot.send_message(chat_id, recommendation, reply_markup=keyboard)
+
+
+async def finder_narrow_tags_handler(language, chat_id, ff_id, action):
+    texts = lang_dict.get(language, lang_dict['ru'])
+    msg = texts[action + '_' + 'message']
+    narrow_tags_ids = await ff.get_narrow_tag_id_by_ff_id(ff_id)
+    narrow_tags = [await tg.get_narrow_tag_name_by_id(nt_id) for nt_id in narrow_tags_ids]
+    pairs = zip(narrow_tags_ids, narrow_tags)
+    result_dict = dict(pairs)
+    result_dict["action"] = action
+    narrow_tags_buttons = [types.InlineKeyboardButton
+                           (text=narrow_tag,
+                            callback_data=f"nrw_tg_o_{narrow_tag}_{chat_id}")
+                           for narrow_tag in narrow_tags]
+    all_button = types.InlineKeyboardButton(text=texts['all'],
+                                            callback_data="nrw_tg_a_"
+                                                          f"{result_dict}_{chat_id}")
+    skip_button = types.InlineKeyboardButton(text=texts['skip'],
+                                             callback_data=f"nrw_tg_s_{chat_id}")
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(*narrow_tags_buttons)
+    keyboard.row(all_button)
+    keyboard.row(skip_button)
+    await bot.send_message(chat_id, msg, reply_markup=keyboard)
 
 
 async def add_users_tags_handler(call, chat_id):
@@ -190,7 +225,6 @@ async def add_users_tags_handler(call, chat_id):
     chosen_tag_id = await tg.get_tag_id(chosen_tag)
     user_tags = await us.get_all_users_tags(chat_id)
     if not any(chosen_tag_id in t for t in user_tags):
-        print("я тут")
         await us.add_users_tags(chat_id, chosen_tag_id)
         await bot.answer_callback_query(call.id, text="Тег выбран (Tag is chosen)")
     else:
@@ -210,11 +244,8 @@ async def add_users_fandoms_handler(call, chat_id):
 
 async def add_users_pairings(call, chat_id):
     chosen_pairing = call.data.split('_')[3]
-    print(chosen_pairing)
     chosen_pairing_id = await pr.get_pairing_id(chosen_pairing)
-    print("Кнопки с пейр", chosen_pairing_id)
     user_pairings = await us.get_all_users_pairings(chat_id)
-    print("Кнопки с пейр", user_pairings)
     if chosen_pairing_id not in user_pairings:
         await us.add_users_pairings(chat_id, chosen_pairing_id)
         await bot.answer_callback_query(call.id, text="Пейринг выбран (Pairing is chosen)")
@@ -224,11 +255,8 @@ async def add_users_pairings(call, chat_id):
 
 async def add_users_relationships(call, chat_id):
     chosen_relationship = call.data.split('_')[3]
-    print(chosen_relationship)
     chosen_relationship_id = await rl.get_relationship_id(chosen_relationship)
-    print("id", chosen_relationship_id)
     user_relationships = await us.get_all_users_relationships(chat_id)
-    print("all", user_relationships)
     if chosen_relationship_id not in user_relationships:
         await us.add_users_relationships(chat_id, chosen_relationship_id)
         await bot.answer_callback_query(call.id, text="Тип отношений выбран (Relationship type is chosen)")
@@ -321,8 +349,29 @@ async def call_finder(call):
     chat_id = call.message.chat.id
     language_mode = await us.get_users_language(chat_id)
     if call.data.startswith('finder_'):
-        await finder_handler(call, language_mode)
+        await finder_handler(language_mode, chat_id)
         await bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('nrw_tg_'))
+async def call_choose_narrow_tags(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    if call.data.startswith('nrw_tg_'):
+        if call.data.startswith('nrw_tg_o_'):
+            narrow_tag = call.data.split('_')[3]
+            narrow_tag_id = await tg.get_narrow_tag_id(narrow_tag)
+            tag_id = await tg.get_tag_id_by_narrow_tag(narrow_tag_id)
+            await tg.add_narrow_tag(narrow_tag, tag_id)  # отдельную функцию обработчик action передается
+            await us.add_users_narrow_tags(chat_id, narrow_tag_id) # отдельную функцию обработчик action
+        elif call.data.startswith('nrw_tg_a_'):
+            narrow_tags = call.data.split('_')[3]
+            for key, value in narrow_tags.items():
+                narrow_tag_id = await tg.get_narrow_tag_id(key)
+                tag_id = await tg.get_tag_id_by_narrow_tag(narrow_tag_id)
+                await tg.add_narrow_tag(value, tag_id)  # отдельную функцию обработчик action передается
+                await us.add_users_narrow_tags_disliked(chat_id, narrow_tag_id) # отдельную функцию обработчик action
+        await finder_recommend_handler(language_mode, chat_id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('choose_tags_'))
@@ -356,38 +405,54 @@ async def call_choose_pairings(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lore_info_'))
 async def send_help_info(call):
-    await bot.send_message(call.chat.id,
+    await bot.send_message(call.message.chat.id,
                            "lore info")
     await bot.answer_callback_query(call.id)
 
 
-# admin штука, потом уберу
-@bot.message_handler(func=lambda message: message.text.startswith('ТЕГИ'))
-async def add_tag_admin(message):
-    text = message.text
-    tag_text = text.split('ТЕГИ', 1)[1].strip()
-    for tag in tag_text.split():
-        await tg.add_tag(tag)
-
-
-@bot.message_handler(func=lambda message: message.text.startswith('ФАНДОМЫ'))
-async def add_fd_admin(message):
-    text = message.text
-    fandom_text = text.split('ФАНДОМЫ', 1)[1].strip()
-    for fandom in fandom_text.split():
-        await fd.add_fandom(fandom)
-
-
-@bot.message_handler(func=lambda message: message.text.startswith('ПЕЙРИНГИ'))
-async def add_pair_admin(message):
-    text = message.text
-    pairing_text = text.split('ПЕЙРИНГИ', 1)[1].strip()
-    pairing = pairing_text.split()
-    for i in range(len(pairing) - 1):
-        await pr.add_pairing(pairing[i], pairing_text[i + 1])
+@bot.callback_query_handler(func=lambda call: call.data.startswith('find_ff_'))
+async def call_finder(call):
+    chat_id = call.message.chat.id
+    language_mode = await us.get_users_language(chat_id)
+    action = call.data.split('_')[2]
+    ff_id = call.data.split('_')[3]
+    print(ff_id, action)
+    if call.data.startswith('find_ff_'):
+        if call.data.startswith('find_ff_like_'):
+            await us.add_users_preferences(chat_id, 1, ff_id)
+        elif call.data.startswith('find_ff_dislike_'):
+            await us.add_users_preferences(chat_id, 0, ff_id)
+        await bot.answer_callback_query(call.id, 'Ваши предпочтения учтены (Your preferences are taken into account)')
+        await finder_narrow_tags_handler(language_mode, chat_id, ff_id, action)
 
 
 @bot.channel_post_handler(func=lambda message: 'telegra.ph' in message.text.lower())
-def handle_all_messages(message):
-    if 'telegra.ph' in message.text.lower():
-        ff.add_fanfiction()
+async def handle_all_messages(message):
+    content = message.text
+    if 'telegra.ph' in content.lower():
+        (title, author, relationship, fandom, tags, rating,
+         status, size, description, pairings, url) = await process_post(content)
+        await au.add_author(author)
+        au_id = await au.get_author_id(author)
+        await ff.add_fanfiction(title, rating, size, status, url, description, au_id)
+        ff_id = await ff.get_fanfiction_id(title)
+        await rl.add_relationship(relationship)
+        rel_id = await rl.get_relationship_id(relationship)
+        await ff.add_fanfiction_relationship(ff_id, rel_id)
+        await fd.add_fandom(fandom)
+        fd_id = await fd.get_fandom_id(fandom)
+        await ff.add_fanfiction_fandom(ff_id, fd_id)
+        for pairing in pairings:
+            await pr.add_pairing(pairing, fd_id)
+            pr_id = await pr.get_pairing_id(pairing)
+            await ff.add_fanfiction_pairing(ff_id, pr_id)
+        for pair in tags:
+            category = pair[0]
+            tags_list = pair[1]
+            await tg.add_tag(category)
+            tg_id = await tg.get_tag_id(category)
+            await ff.add_fanfiction_tag(ff_id, tg_id)
+            for narrow_tag in tags_list:
+                await tg.add_narrow_tag(narrow_tag, tg_id)
+                n_tg_id = await tg.get_narrow_tag_id(narrow_tag)
+                await ff.add_fanfiction_narrow_tag(ff_id, n_tg_id)

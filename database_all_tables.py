@@ -46,6 +46,11 @@ class Database:
             "pairing VARCHAR,"
             "fandom_id INTEGER REFERENCES fandoms(id))")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS narrow_tags("
+            "id SERIAL PRIMARY KEY,"
+            "narrow_tag VARCHAR,"
+            "tag_id INTEGER REFERENCES tags(id))")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS users("
             "id SERIAL PRIMARY KEY,"
             "chat_id INTEGER UNIQUE,"
@@ -54,13 +59,22 @@ class Database:
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS authors("
             "id SERIAL PRIMARY KEY,"
-            "chat_id INTEGER UNIQUE,"
             "username VARCHAR)")
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS users_tags("
             "chat_id INTEGER REFERENCES users(chat_id),"
             "tag_id INTEGER REFERENCES tags(id),"
             "PRIMARY KEY(chat_id, tag_id))")
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_narrow_tags("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "narrow_tag_id INTEGER REFERENCES narrow_tags(id),"
+            "PRIMARY KEY(chat_id, narrow_tag_id))")
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_narrow_tags_disliked("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "narrow_tag_id INTEGER REFERENCES narrow_tags(id),"
+            "PRIMARY KEY(chat_id, narrow_tag_id))")
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS users_fandoms("
             "chat_id INTEGER REFERENCES users(chat_id),"
@@ -77,12 +91,25 @@ class Database:
             "relationship_id INTEGER REFERENCES relationships(id),"
             "PRIMARY KEY(chat_id, relationship_id))")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_language("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "language_code VARCHAR,"
+            "PRIMARY KEY(chat_id, language_code))")
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS users_preferences("
+            "chat_id INTEGER REFERENCES users(chat_id),"
+            "preference INTEGER,"
+            "ff_id INTEGER REFERENCES fanfiction(id),"
+            "PRIMARY KEY(chat_id, language_code, ff_id))")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction("
             "id SERIAL PRIMARY KEY,"
             "title VARCHAR,"
             "rating VARCHAR,"
+            "ff_size VARCHAR,"
             "status VARCHAR,"
             "link VARCHAR,"
+            "description VARCHAR,"
             "author_id INT REFERENCES authors(id))")
         self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction_tags("
@@ -90,20 +117,25 @@ class Database:
             "tag_id INT REFERENCES tags(id),"
             "PRIMARY KEY(fanfic_id, tag_id))")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS fanfiction_narrow_tags("
+            "fanfic_id INT REFERENCES fanfiction(id),"
+            "narrow_tag_id INT REFERENCES narrow_tags(id),"
+            "PRIMARY KEY(fanfic_id, narrow_tag_id))")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction_pairings("
             "fanfic_id INT REFERENCES fanfiction(id),"
             "pairing_id INT REFERENCES pairings(id),"
             "PRIMARY KEY(fanfic_id, pairing_id))")
         self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS fanfiction_relationships("
+            "fanfic_id INT REFERENCES fanfiction(id),"
+            "relationship_id INT REFERENCES relationships(id),"
+            "PRIMARY KEY(fanfic_id, relationship_id))")
+        self.cur.execute(
             "CREATE TABLE IF NOT EXISTS fanfiction_fandoms("
             "fanfic_id INT REFERENCES fanfiction(id),"
             "fandom_id INT REFERENCES fandoms(id),"
             "PRIMARY KEY(fanfic_id, fandom_id))")
-        self.cur.execute(
-            "CREATE TABLE IF NOT EXISTS users_language("
-            "chat_id INTEGER REFERENCES users(chat_id),"
-            "language_code VARCHAR,"
-            "PRIMARY KEY(chat_id, language_code))")
         self.conn.commit()
         self.cur.close()
 
@@ -121,7 +153,16 @@ class Tags:
 
     async def add_tag(self, tag_name: str):
         self.cur = self.conn.cursor()
-        self.cur.execute(f"INSERT INTO tags(tag) VALUES ('{tag_name}')")
+        self.cur.execute("SELECT COUNT(*) FROM tags WHERE tag = %s", (tag_name,))
+        count = self.cur.fetchone()[0]
+        if count == 0:
+            self.cur.execute(f"INSERT INTO tags(tag) VALUES ('{tag_name}')")
+            self.conn.commit()
+        self.cur.close()
+
+    async def add_narrow_tag(self, narrow_tag: str, tag_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO narrow_tags(narrow_tag, tag_id) VALUES ('{narrow_tag}', {tag_id})")
         self.conn.commit()
         self.cur.close()
 
@@ -131,6 +172,27 @@ class Tags:
         tag_id = self.cur.fetchone()
         self.cur.close()
         return tag_id[0]
+
+    async def get_tag_id_by_narrow_tag(self, narrow_tag_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT tag_id FROM narrow_tags WHERE narrow_tag = %s", (narrow_tag_id,))
+        tag_id = self.cur.fetchone()
+        self.cur.close()
+        return tag_id[0]
+
+    async def get_narrow_tag_id(self, narrow_tag_name: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT id FROM narrow_tags WHERE narrow_tag = %s", (narrow_tag_name,))
+        tag_id = self.cur.fetchone()
+        self.cur.close()
+        return tag_id[0]
+
+    async def get_narrow_tag_name_by_id(self, narrow_tag_id: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT narrow_tag FROM narrow_tags WHERE id = %s", (narrow_tag_id,))
+        narrow_tag = self.cur.fetchone()
+        self.cur.close()
+        return narrow_tag[0]
 
     async def get_all_tags(self):
         self.cur = self.conn.cursor()
@@ -153,8 +215,11 @@ class Fandoms:
 
     async def add_fandom(self, fandom_name: str):
         self.cur = self.conn.cursor()
-        self.cur.execute(f"INSERT INTO fandoms(fandom) VALUES ('{fandom_name}')")
-        self.conn.commit()
+        self.cur.execute("SELECT COUNT(*) FROM fandoms WHERE fandom = %s", (fandom_name,))
+        count = self.cur.fetchone()[0]
+        if count == 0:
+            self.cur.execute(f"INSERT INTO fandoms(fandom) VALUES ('{fandom_name}')")
+            self.conn.commit()
         self.cur.close()
 
     async def get_fandom_id(self, fandom_name: str):
@@ -162,7 +227,7 @@ class Fandoms:
         self.cur.execute("SELECT id FROM fandoms WHERE fandom = %s", (fandom_name,))
         fandom_id = self.cur.fetchone()
         self.cur.close()
-        return fandom_id
+        return fandom_id[0]
 
     async def get_fandom_by_id(self, fandom_id: str):
         self.cur = self.conn.cursor()
@@ -256,6 +321,30 @@ class Users:
         self.conn.commit()
         self.cur.close()
 
+    async def add_users_preferences(self, chat_id, preferences, ff_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "INSERT INTO users_language (chat_id, preferences, ff_id) VALUES (%s, %s, %s)",
+            (chat_id, preferences, ff_id))
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_users_narrow_tags(self, chat_id, tg_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "INSERT INTO users_narrow_tags (chat_id, narrow_tag_id) VALUES (%s, %s)",
+            (chat_id, tg_id))
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_users_narrow_tags_disliked(self, chat_id, tg_id):
+        self.cur = self.conn.cursor()
+        self.cur.execute(
+            "INSERT INTO users_narrow_tags_disliked (chat_id, narrow_tag_id) VALUES (%s, %s)",
+            (chat_id, tg_id))
+        self.conn.commit()
+        self.cur.close()
+
     async def delete_users_tags_by_chat_id(self, chat_id):
         self.cur = self.conn.cursor()
         self.cur.execute(f"DELETE FROM users_tags WHERE chat_id = %s", (chat_id,))
@@ -341,8 +430,11 @@ class Pairings:
 
     async def add_pairing(self, pairing_name: str, fandom_id: int):
         self.cur = self.conn.cursor()
-        self.cur.execute(f"INSERT INTO pairings(pairing, fandom_id) VALUES ('{pairing_name}', {fandom_id})")
-        self.conn.commit()
+        self.cur.execute("SELECT COUNT(*) FROM pairings WHERE pairing = %s", (pairing_name,))
+        count = self.cur.fetchone()[0]
+        if count == 0:
+            self.cur.execute(f"INSERT INTO pairings(pairing, fandom_id) VALUES ('{pairing_name}', {fandom_id})")
+            self.conn.commit()
         self.cur.close()
 
     async def get_pairing_id(self, pairing_name: str):
@@ -350,7 +442,7 @@ class Pairings:
         self.cur.execute("SELECT id FROM pairings WHERE pairing = %s", (pairing_name,))
         pairing_id = self.cur.fetchone()
         self.cur.close()
-        return pairing_id
+        return pairing_id[0]
 
     async def get_all_pairings(self):
         self.cur = self.conn.cursor()
@@ -378,6 +470,15 @@ class Relationships:
         )
         self.cur = self.conn.cursor()
 
+    async def add_relationship(self, relationship_name: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT COUNT(*) FROM relationships WHERE relationship = %s", (relationship_name,))
+        count = self.cur.fetchone()[0]
+        if count == 0:
+            self.cur.execute("INSERT INTO relationships(relationship) VALUES (%s)", (relationship_name,))
+            self.conn.commit()
+        self.cur.close()
+
     async def get_all_relationships(self):
         self.cur = self.conn.cursor()
         self.cur.execute(f"SELECT relationship FROM relationships")
@@ -390,7 +491,8 @@ class Relationships:
         self.cur.execute("SELECT id FROM relationships WHERE relationship = %s", (relationship_name,))
         relationship_id = self.cur.fetchone()
         self.cur.close()
-        return relationship_id
+        return relationship_id[0]
+
 
 class Fanfiction:
     def __init__(self):
@@ -403,5 +505,92 @@ class Fanfiction:
         )
         self.cur = self.conn.cursor()
 
-    def add_fanfiction(self):
-        pass
+    async def add_fanfiction(self, title: str, rating: str, size: str,
+                             status: str, link: str, description: str, author: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT COUNT(*) FROM fanfiction WHERE title = %s", (title,))
+        count = self.cur.fetchone()[0]
+        if count == 0:
+            self.cur.execute("INSERT INTO fanfiction(title, rating, ff_size, status, link, description, author_id) "
+                             f"VALUES ('{title}', '{rating}', '{size}', '{status}', '{link}', '{description}', {author})")
+            self.conn.commit()
+        self.cur.close()
+
+    async def add_fanfiction_relationship(self, fanfic_id: int, relationship_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO fanfiction_relationships(fanfic_id, relationship_id) "
+                         f"VALUES ({fanfic_id}, {relationship_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_fanfiction_fandom(self, fanfic_id: int, fandom_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO fanfiction_fandoms(fanfic_id, fandom_id) "
+                         f"VALUES ({fanfic_id}, {fandom_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_fanfiction_pairing(self, fanfic_id: int, pairing_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO fanfiction_pairings(fanfic_id, pairing_id) "
+                         f"VALUES ({fanfic_id}, {pairing_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_fanfiction_tag(self, fanfic_id: int, tag_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO fanfiction_tags(fanfic_id, tag_id) "
+                         f"VALUES ({fanfic_id}, {tag_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def add_fanfiction_narrow_tag(self, fanfic_id: int, narrow_tag_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute(f"INSERT INTO fanfiction_narrow_tags(fanfic_id, narrow_tag_id) "
+                         f"VALUES ({fanfic_id}, {narrow_tag_id})")
+        self.conn.commit()
+        self.cur.close()
+
+    async def get_fanfiction_id(self, title: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT id FROM fanfiction WHERE title = %s", (title,))
+        ff_id = self.cur.fetchone()
+        self.cur.close()
+        return ff_id[0]
+
+    async def get_narrow_tag_id_by_ff_id(self, ff_id: int):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT narrow_tag_id FROM fanfiction_narrow_tags WHERE fanfic_id = %s", (ff_id,))
+        ff_id = self.cur.fetchall()
+        self.cur.close()
+        id_list = [tup[0] for tup in ff_id]
+        return id_list
+
+
+class Authors:
+    def __init__(self):
+        self.conn = psycopg2.connect(
+            host=HOST,
+            database=DATABASE,
+            user=USER,
+            password=PASSWORD,
+            port=PORT
+        )
+        self.cur = self.conn.cursor()
+
+    async def add_author(self, author_name: str):
+        self.cur.execute(
+            "SELECT COUNT(*) FROM authors WHERE username = %s",
+            (author_name,))
+        author_count = self.cur.fetchone()[0]
+        if author_count == 0:
+            self.cur.execute(f"INSERT INTO authors(username) VALUES ('{author_name}')")
+            self.conn.commit()
+        self.cur.close()
+
+    async def get_author_id(self, author_name: str):
+        self.cur = self.conn.cursor()
+        self.cur.execute("SELECT id FROM authors WHERE username = %s", (author_name,))
+        author_id = self.cur.fetchone()
+        self.cur.close()
+        return author_id[0]
